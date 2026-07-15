@@ -44,9 +44,12 @@ def _safe_run_name(request: BackupRequest) -> str:
 
 
 def _find_run(run_id: str):
-    for run in cache.get(config.backup_root(), force=True):
-        if run.id == run_id:
-            return run
+    # Try the cached scan first; only fall back to a full disk rescan when the
+    # id is unknown (e.g. a backup that finished since the last scan).
+    for force in (False, True):
+        for run in cache.get(config.backup_root(), force=force):
+            if run.id == run_id:
+                return run
     return None
 
 
@@ -135,9 +138,20 @@ def start_backup(request: BackupRequest):
         )
 
     root = config.backup_root()
-    run_name = _safe_run_name(request)
-    out_dir = root / run_name
-    out_dir.mkdir(parents=True, exist_ok=True)
+    root.mkdir(parents=True, exist_ok=True)
+    base_name = _safe_run_name(request)
+    # Claim the directory with mkdir itself so concurrent requests can't race
+    # between an exists() check and the create.
+    out_dir = root / base_name
+    counter = 2
+    while True:
+        try:
+            out_dir.mkdir()
+            break
+        except FileExistsError:
+            out_dir = root / f"{base_name}-{counter}"
+            counter += 1
+    run_name = out_dir.name
 
     cmd = [config.backup_cmd(), "backup", "--org", request.org, "--output", str(out_dir)]
     if request.all_projects:

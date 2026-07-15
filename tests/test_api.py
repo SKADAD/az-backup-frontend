@@ -86,6 +86,15 @@ exit 0
     assert os.path.exists(os.path.join(runs[0]["path"], "frontend.log"))
 
 
+def test_concurrent_backups_get_distinct_dirs(client, tmp_path, monkeypatch):
+    make_stub_tool(tmp_path, monkeypatch, "sleep 2\nexit 0\n")
+    payload = {"org": "https://dev.azure.com/contoso", "all_projects": True}
+    first = client.post("/api/backups", json=payload).json()
+    second = client.post("/api/backups", json=payload).json()
+    assert first["run_id"] != second["run_id"]
+    assert first["output"] != second["output"]
+
+
 def test_backup_conflict_without_tool(client, monkeypatch):
     monkeypatch.setenv("AZDO_BACKUP_CMD", "definitely-not-a-real-command")
     monkeypatch.setenv("AZDO_PAT", "x")

@@ -127,6 +127,25 @@ def _dir_size(path: Path) -> int:
     return total
 
 
+# Finished runs are immutable, so their tree walk result is cached against
+# summary.json's identity; unfinished runs (no summary yet) are always re-walked.
+_size_cache: dict = {}
+
+
+def _cached_dir_size(path: Path) -> int:
+    try:
+        st = (path / "summary.json").stat()
+        signature = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return _dir_size(path)
+    cached = _size_cache.get(str(path))
+    if cached is not None and cached[0] == signature:
+        return cached[1]
+    size = _dir_size(path)
+    _size_cache[str(path)] = (signature, size)
+    return size
+
+
 def _scan_dir_run(path: Path) -> BackupRun:
     summary = _load_json(path / "summary.json")
     probed = _probe_summary(summary or {})
@@ -159,7 +178,7 @@ def _scan_dir_run(path: Path) -> BackupRun:
         path=str(path),
         kind="dir",
         created_at=created_at,
-        size_bytes=_dir_size(path),
+        size_bytes=_cached_dir_size(path),
         org=org,
         projects=projects,
         status=status,
