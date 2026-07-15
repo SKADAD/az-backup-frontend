@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "azdo-backup-frontend"
+version = "0.1.0"
+description = "Local web frontend and dashboard for the azdo-az-backup CLI"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "pydantic>=2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx", "ruff"]
+
+[project.scripts]
+azdo-backup-frontend = "azdo_backup_frontend.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["azdo_backup_frontend*"]
+
+[tool.setuptools.package-data]
+azdo_backup_frontend = ["static/*"]
+
+[tool.ruff]
+line-length = 100

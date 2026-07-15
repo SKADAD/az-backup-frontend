@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AzDO Backup Console</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗄️</text></svg>">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-title">
+      <h1>AzDO Backup Console</h1>
+      <span class="subtle" id="root-path"></span>
+    </div>
+    <div class="topbar-pills">
+      <span class="pill" id="pill-tool" title="Is the azdo-backup CLI on PATH?">tool: …</span>
+      <span class="pill" id="pill-pat" title="Is a PAT set via AZURE_DEVOPS_EXT_PAT / AZDO_PAT?">PAT: …</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="tiles" id="tiles">
+      <div class="tile">
+        <div class="tile-label">Last backup</div>
+        <div class="tile-value" id="tile-last">—</div>
+        <div class="tile-sub" id="tile-last-sub"></div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Total size on disk</div>
+        <div class="tile-value" id="tile-size">—</div>
+        <div class="tile-sub" id="tile-size-sub"></div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Backups</div>
+        <div class="tile-value" id="tile-count">—</div>
+        <div class="tile-sub" id="tile-count-sub"></div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Projects covered</div>
+        <div class="tile-value" id="tile-projects">—</div>
+        <div class="tile-sub" id="tile-projects-sub"></div>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card viz-root">
+        <div class="card-head">
+          <h2>Backup size per run</h2>
+          <span class="subtle" id="chart-note"></span>
+        </div>
+        <div class="chart-wrap" id="chart"></div>
+        <div class="tooltip" id="chart-tooltip" hidden></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>New backup</h2></div>
+        <form id="backup-form">
+          <label for="f-org">Organization URL</label>
+          <input id="f-org" type="text" placeholder="https://dev.azure.com/my-org" required>
+
+          <div class="row radio-row">
+            <label class="inline"><input type="radio" name="scope" value="all" checked> All projects</label>
+            <label class="inline"><input type="radio" name="scope" value="one"> Single project</label>
+          </div>
+
+          <div id="project-row" hidden>
+            <label for="f-project">Project</label>
+            <div class="row">
+              <input id="f-project" type="text" list="project-list" placeholder="Project name">
+              <button type="button" class="btn ghost" id="btn-fetch-projects">Fetch list</button>
+            </div>
+            <datalist id="project-list"></datalist>
+          </div>
+
+          <div id="exclude-row">
+            <label for="f-exclude">Exclude projects <span class="subtle">(comma-separated, optional)</span></label>
+            <input id="f-exclude" type="text" placeholder="Sandbox,Archive">
+          </div>
+
+          <div class="row options-row">
+            <label class="inline" for="f-workers">Workers
+              <input id="f-workers" type="number" min="1" max="64" placeholder="auto">
+            </label>
+            <label class="inline"><input id="f-skip-repos" type="checkbox"> Skip repos</label>
+            <label class="inline"><input id="f-archive" type="checkbox"> Archive (.zip)</label>
+            <label class="inline"><input id="f-dry-run" type="checkbox"> Dry run</label>
+          </div>
+
+          <div class="row">
+            <button type="submit" class="btn primary" id="btn-start">Start backup</button>
+            <span class="form-msg" id="form-msg"></span>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section class="card" id="log-card" hidden>
+      <div class="card-head">
+        <h2 id="log-title">Job</h2>
+        <div class="row">
+          <span class="badge" id="log-state"></span>
+          <button type="button" class="btn ghost" id="btn-close-log">Close</button>
+        </div>
+      </div>
+      <pre class="log" id="log-output"></pre>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Backup history</h2>
+        <button type="button" class="btn ghost" id="btn-refresh">Rescan disk</button>
+      </div>
+      <div class="table-wrap">
+        <table id="runs-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Date</th>
+              <th>Org</th>
+              <th>Projects</th>
+              <th class="num">Size</th>
+              <th class="num">Duration</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="runs-body"></tbody>
+        </table>
+        <div class="empty" id="runs-empty" hidden>
+          No backups found yet. Start one above, or point <code>AZDO_BACKUP_ROOT</code> at an existing backups folder.
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-backdrop" id="detail-modal" hidden>
+    <div class="modal card">
+      <div class="card-head">
+        <h2 id="detail-title">Backup detail</h2>
+        <button type="button" class="btn ghost" id="btn-close-detail">Close</button>
+      </div>
+      <div id="detail-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
