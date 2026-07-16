@@ -209,7 +209,9 @@ def verify_backup(run_id: str):
             status_code=409,
             detail=f"backup command '{config.backup_cmd()}' not found on PATH",
         )
-    cmd = [config.backup_cmd(), "verify", "--source", run.path]
+    # Verify the archive when one exists — that's what checksums.json covers.
+    source = run.archive_path or run.path
+    cmd = [config.backup_cmd(), "verify", "--source", source]
     log_file = Path(run.path) / "verify.log" if run.kind == "dir" else None
     job = jobs.start("verify", cmd, log_file=log_file, meta={"run_id": run_id})
     return {"job_id": job.id, "run_id": run_id}

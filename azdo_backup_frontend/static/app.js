@@ -242,8 +242,9 @@ function renderTable(runs) {
     const tr = document.createElement("tr");
 
     const name = document.createElement("td");
-    name.textContent = r.id + (r.kind === "zip" ? " 🗜" : "");
-    name.title = r.path;
+    const archived = r.kind === "zip" || r.archive_path;
+    name.textContent = r.id + (archived ? " 🗜" : "");
+    name.title = r.path + (r.archive_path ? "\narchive: " + r.archive_path : "");
     tr.appendChild(name);
 
     const date = document.createElement("td");
@@ -350,7 +351,12 @@ async function openDetail(runId) {
   };
   add("Path", d.path);
   add("Date", fmtDate(d.created_at) + " (" + fmtRelative(d.created_at) + ")");
-  add("Size on disk", fmtBytes(d.size_bytes));
+  if (d.archive_path) {
+    add("Archive", d.archive_path + " (" + fmtBytes(d.archive_size_bytes) + ")");
+    add("Size on disk", fmtBytes(d.size_bytes) + " (folder + archive)");
+  } else {
+    add("Size on disk", fmtBytes(d.size_bytes));
+  }
   add("Org", d.org || "—");
   add("Projects", d.projects.length ? d.projects.join(", ") : "—");
   add("Status", (STATUS_LABEL[d.status] || d.status) + (d.error_count ? ` (${d.error_count} errors)` : ""));

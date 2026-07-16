@@ -38,6 +38,10 @@ class BackupRun:
     status: str = "unknown"  # ok | completed_with_errors | incomplete | running | unknown
     error_count: int = 0
     duration_seconds: Optional[float] = None
+    # Set when a sibling <run-name>.zip produced by --archive is folded into
+    # this run; size_bytes then covers both the directory and the archive.
+    archive_path: Optional[str] = None
+    archive_size_bytes: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -263,18 +267,35 @@ def _looks_like_run(path: Path) -> bool:
 
 
 def scan(root: Path) -> List[BackupRun]:
-    runs: List[BackupRun] = []
     if not root.is_dir():
-        return runs
+        return []
     try:
         entries = sorted(root.iterdir())
     except OSError:
-        return runs
+        return []
+
+    dir_runs: List[BackupRun] = []
+    zip_runs: List[BackupRun] = []
     for entry in entries:
         if entry.is_dir() and _looks_like_run(entry):
-            runs.append(_scan_dir_run(entry))
+            dir_runs.append(_scan_dir_run(entry))
         elif entry.is_file() and entry.suffix.lower() == ".zip":
-            runs.append(_scan_zip_run(entry))
+            zip_runs.append(_scan_zip_run(entry))
+
+    # `backup --archive` writes <run-name>.zip next to the run directory and
+    # keeps both; fold such a zip into its directory run so one backup is one
+    # history entry. Zips without a matching directory stay standalone runs.
+    by_id = {run.id: run for run in dir_runs}
+    runs = dir_runs
+    for zip_run in zip_runs:
+        target = by_id.get(Path(zip_run.path).stem)
+        if target is not None:
+            target.archive_path = zip_run.path
+            target.archive_size_bytes = zip_run.size_bytes
+            target.size_bytes += zip_run.size_bytes
+        else:
+            runs.append(zip_run)
+
     runs.sort(key=lambda r: r.created_at or "", reverse=True)
     return runs
 
