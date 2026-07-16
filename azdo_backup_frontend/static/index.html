@@ -60,11 +60,11 @@
           <input id="f-org" type="text" placeholder="https://dev.azure.com/my-org" required>
 
           <div class="row radio-row">
-            <label class="inline"><input type="radio" name="scope" value="all" checked> All projects</label>
-            <label class="inline"><input type="radio" name="scope" value="one"> Single project</label>
+            <label class="inline"><input type="radio" name="scope" value="one" checked> Single project</label>
+            <label class="inline"><input type="radio" name="scope" value="all"> All projects</label>
           </div>
 
-          <div id="project-row" hidden>
+          <div id="project-row">
             <label for="f-project">Project</label>
             <div class="row">
               <input id="f-project" type="text" list="project-list" placeholder="Project name">
@@ -73,7 +73,7 @@
             <datalist id="project-list"></datalist>
           </div>
 
-          <div id="exclude-row">
+          <div id="exclude-row" hidden>
             <label for="f-exclude">Exclude projects <span class="subtle">(comma-separated, optional)</span></label>
             <input id="f-exclude" type="text" placeholder="Sandbox,Archive">
           </div>
@@ -84,7 +84,6 @@
             </label>
             <label class="inline"><input id="f-skip-repos" type="checkbox"> Skip repos</label>
             <label class="inline"><input id="f-archive" type="checkbox"> Archive (.zip)</label>
-            <label class="inline"><input id="f-dry-run" type="checkbox"> Dry run</label>
           </div>
 
           <div class="row">

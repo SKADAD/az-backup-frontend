@@ -300,6 +300,13 @@ function renderTable(runs) {
       detail.textContent = "Details";
       detail.onclick = () => openDetail(r.id);
       actions.appendChild(detail);
+      if (r.kind === "dir") {
+        const logBtn = document.createElement("button");
+        logBtn.className = "btn ghost small";
+        logBtn.textContent = "Log";
+        logBtn.onclick = () => openSavedLog(r);
+        actions.appendChild(logBtn);
+      }
       const verify = document.createElement("button");
       verify.className = "btn ghost small";
       verify.textContent = "Verify";
@@ -398,6 +405,29 @@ function openLog(jobId, title) {
   $("log-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
+/* Show the saved frontend.log of a finished run (no polling). */
+async function openSavedLog(run) {
+  if (logPoll) clearTimeout(logPoll);
+  $("log-card").hidden = false;
+  $("log-title").textContent = "Saved log · " + run.id;
+  const out = $("log-output");
+  out.textContent = "Loading…";
+  $("log-state").replaceWith(Object.assign(badge(run.status), { id: "log-state" }));
+  try {
+    const res = await fetch(`/api/backups/${encodeURIComponent(run.id)}/log`);
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { detail = (await res.json()).detail || detail; } catch (e) { /* keep statusText */ }
+      throw new Error(detail);
+    }
+    out.textContent = (await res.text()) || "(log is empty)";
+    out.scrollTop = out.scrollHeight;
+  } catch (e) {
+    out.textContent = "Could not load saved log: " + e.message;
+  }
+  $("log-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
 /* ---------- new backup form ---------- */
 
 function formScope() {
@@ -447,10 +477,18 @@ function wireForm() {
       workers: $("f-workers").value ? Number($("f-workers").value) : null,
       skip_repos: $("f-skip-repos").checked,
       archive: $("f-archive").checked,
-      dry_run: $("f-dry-run").checked,
     };
     if (!payload.all_projects && !payload.project) {
       msg.textContent = "Enter a project name."; msg.className = "form-msg error"; return;
+    }
+    if (payload.all_projects) {
+      const scope = payload.exclude_projects
+        ? `ALL projects (except: ${payload.exclude_projects})`
+        : "ALL projects";
+      if (!confirm(`This will back up ${scope} in ${payload.org}.\n\nStart the full-organization backup?`)) {
+        msg.textContent = "Cancelled.";
+        return;
+      }
     }
     $("btn-start").disabled = true;
     msg.textContent = "Starting…"; msg.className = "form-msg";
