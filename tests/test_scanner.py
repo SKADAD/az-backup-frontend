@@ -70,6 +70,21 @@ def test_scan_zip_run(tmp_path):
     assert run.size_bytes == zpath.stat().st_size
 
 
+def test_finished_run_size_is_cached_until_summary_changes(tmp_path):
+    run = make_dir_run(tmp_path, "cached_run")
+    size1 = scan(tmp_path)[0].size_bytes
+
+    # Finished runs are treated as immutable: adding a file without touching
+    # summary.json is served from the cache.
+    (run / "projects" / "Alpha" / "extra.bin").write_bytes(b"x" * 5000)
+    assert scan(tmp_path)[0].size_bytes == size1
+
+    # Rewriting summary.json invalidates the cached size.
+    summary = json.loads((run / "summary.json").read_text())
+    (run / "summary.json").write_text(json.dumps(summary, indent=2))
+    assert scan(tmp_path)[0].size_bytes >= size1 + 5000
+
+
 def test_runs_sorted_newest_first(tmp_path):
     old = make_dir_run(tmp_path, "old_run")
     (old / "summary.json").write_text(json.dumps({"finished_at": "2026-01-01T00:00:00Z"}))

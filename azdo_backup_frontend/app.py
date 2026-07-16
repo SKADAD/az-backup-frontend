@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -30,7 +30,6 @@ class BackupRequest(BaseModel):
     workers: Optional[int] = Field(default=None, ge=1, le=64)
     skip_repos: bool = False
     archive: bool = False
-    dry_run: bool = False
 
 
 class OrgRequest(BaseModel):
@@ -44,9 +43,12 @@ def _safe_run_name(request: BackupRequest) -> str:
 
 
 def _find_run(run_id: str):
-    for run in cache.get(config.backup_root(), force=True):
-        if run.id == run_id:
-            return run
+    # Try the cached scan first; only fall back to a full disk rescan when the
+    # id is unknown (e.g. a backup that finished since the last scan).
+    for force in (False, True):
+        for run in cache.get(config.backup_root(), force=force):
+            if run.id == run_id:
+                return run
     return None
 
 
@@ -135,9 +137,20 @@ def start_backup(request: BackupRequest):
         )
 
     root = config.backup_root()
-    run_name = _safe_run_name(request)
-    out_dir = root / run_name
-    out_dir.mkdir(parents=True, exist_ok=True)
+    root.mkdir(parents=True, exist_ok=True)
+    base_name = _safe_run_name(request)
+    # Claim the directory with mkdir itself so concurrent requests can't race
+    # between an exists() check and the create.
+    out_dir = root / base_name
+    counter = 2
+    while True:
+        try:
+            out_dir.mkdir()
+            break
+        except FileExistsError:
+            out_dir = root / f"{base_name}-{counter}"
+            counter += 1
+    run_name = out_dir.name
 
     cmd = [config.backup_cmd(), "backup", "--org", request.org, "--output", str(out_dir)]
     if request.all_projects:
@@ -152,8 +165,6 @@ def start_backup(request: BackupRequest):
         cmd.append("--skip-repos")
     if request.archive:
         cmd.append("--archive")
-    if request.dry_run:
-        cmd.append("--dry-run")
 
     job = jobs.start(
         "backup",
@@ -164,6 +175,28 @@ def start_backup(request: BackupRequest):
     )
     cache.invalidate()
     return {"job_id": job.id, "run_id": run_name, "output": str(out_dir)}
+
+
+LOG_TAIL_BYTES = 256 * 1024
+
+
+@app.get("/api/backups/{run_id}/log", response_class=PlainTextResponse)
+def backup_log(run_id: str):
+    run = _find_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="backup not found")
+    if run.kind != "dir":
+        raise HTTPException(status_code=404, detail="archives have no saved log")
+    log_path = Path(run.path) / "frontend.log"
+    if not log_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="no saved log for this run (it wasn't started from this frontend)",
+        )
+    data = log_path.read_bytes()
+    if len(data) > LOG_TAIL_BYTES:
+        data = b"[... truncated, showing last 256 KB ...]\n" + data[-LOG_TAIL_BYTES:]
+    return data.decode("utf-8", errors="replace")
 
 
 @app.post("/api/backups/{run_id}/verify", status_code=202)
@@ -177,7 +210,8 @@ def verify_backup(run_id: str):
             detail=f"backup command '{config.backup_cmd()}' not found on PATH",
         )
     cmd = [config.backup_cmd(), "verify", "--source", run.path]
-    job = jobs.start("verify", cmd, meta={"run_id": run_id})
+    log_file = Path(run.path) / "verify.log" if run.kind == "dir" else None
+    job = jobs.start("verify", cmd, log_file=log_file, meta={"run_id": run_id})
     return {"job_id": job.id, "run_id": run_id}
 
 

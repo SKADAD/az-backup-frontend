@@ -101,12 +101,19 @@ class JobManager:
 
     def _run(self, job: Job, cmd: List[str], log_file: Optional[Path], on_finish) -> None:
         log_handle = None
+
+        def emit(line: str) -> None:
+            job.append(line)
+            if log_handle:
+                log_handle.write(line + "\n")
+                log_handle.flush()
+
         try:
             if log_file is not None:
                 log_file.parent.mkdir(parents=True, exist_ok=True)
                 log_handle = open(log_file, "a", encoding="utf-8")
 
-            job.append(f"$ {' '.join(cmd)}")
+            emit(f"$ {' '.join(cmd)}")
             try:
                 proc = subprocess.Popen(
                     cmd,
@@ -118,20 +125,18 @@ class JobManager:
                     env=os.environ.copy(),
                 )
             except FileNotFoundError:
-                job.append(f"error: command not found: {cmd[0]}")
+                emit(f"error: command not found: {cmd[0]}")
                 job.finish(127)
                 return
 
             assert proc.stdout is not None
             for raw in proc.stdout:
-                line = raw.rstrip("\n")
-                job.append(line)
-                if log_handle:
-                    log_handle.write(line + "\n")
-                    log_handle.flush()
-            job.finish(proc.wait())
+                emit(raw.rstrip("\n"))
+            returncode = proc.wait()
+            emit(f"[exit code {returncode}]")
+            job.finish(returncode)
         except Exception as exc:  # surface unexpected runner errors in the job log
-            job.append(f"runner error: {exc!r}")
+            emit(f"runner error: {exc!r}")
             job.finish(1)
         finally:
             if log_handle:

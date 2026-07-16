@@ -86,6 +86,54 @@ exit 0
     assert os.path.exists(os.path.join(runs[0]["path"], "frontend.log"))
 
 
+def wait_for_job(client, job_id, timeout=10):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        snap = client.get(f"/api/jobs/{job_id}").json()
+        if snap["state"] != "running":
+            return snap
+        time.sleep(0.1)
+    raise AssertionError("job did not finish in time")
+
+
+def test_saved_log_for_failed_run(client, tmp_path, monkeypatch):
+    make_stub_tool(tmp_path, monkeypatch, 'echo "boom: auth rejected" >&2\nexit 1\n')
+    res = client.post(
+        "/api/backups",
+        json={"org": "https://dev.azure.com/contoso", "project": "Alpha"},
+    )
+    assert res.status_code == 202
+    body = res.json()
+    snap = wait_for_job(client, body["job_id"])
+    assert snap["state"] == "failed"
+
+    log = client.get(f"/api/backups/{body['run_id']}/log")
+    assert log.status_code == 200
+    # The saved log keeps the command line, stderr, and exit code for post-mortems.
+    assert "$ " in log.text
+    assert "boom: auth rejected" in log.text
+    assert "[exit code 1]" in log.text
+
+
+def test_saved_log_missing_for_foreign_run(client, tmp_path, monkeypatch):
+    root = tmp_path / "backups"
+    run = root / "cli_made_run"
+    run.mkdir(parents=True)
+    (run / "summary.json").write_text("{}")
+    app_module.cache.invalidate()
+    res = client.get("/api/backups/cli_made_run/log")
+    assert res.status_code == 404
+
+
+def test_concurrent_backups_get_distinct_dirs(client, tmp_path, monkeypatch):
+    make_stub_tool(tmp_path, monkeypatch, "sleep 2\nexit 0\n")
+    payload = {"org": "https://dev.azure.com/contoso", "all_projects": True}
+    first = client.post("/api/backups", json=payload).json()
+    second = client.post("/api/backups", json=payload).json()
+    assert first["run_id"] != second["run_id"]
+    assert first["output"] != second["output"]
+
+
 def test_backup_conflict_without_tool(client, monkeypatch):
     monkeypatch.setenv("AZDO_BACKUP_CMD", "definitely-not-a-real-command")
     monkeypatch.setenv("AZDO_PAT", "x")
