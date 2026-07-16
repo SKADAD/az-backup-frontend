@@ -85,6 +85,36 @@ def test_finished_run_size_is_cached_until_summary_changes(tmp_path):
     assert scan(tmp_path)[0].size_bytes >= size1 + 5000
 
 
+def make_sibling_zip(root, name):
+    zpath = root / (name + ".zip")
+    with zipfile.ZipFile(zpath, "w") as zf:
+        zf.writestr("summary.json", json.dumps({"errors": []}))
+        zf.writestr("projects/Alpha/blob.bin", "x" * 4000)
+    return zpath
+
+
+def test_archive_zip_folds_into_dir_run(tmp_path):
+    make_dir_run(tmp_path, "2026-07-16_0300_all")
+    zpath = make_sibling_zip(tmp_path, "2026-07-16_0300_all")
+    runs = scan(tmp_path)
+    assert len(runs) == 1  # one backup -> one history entry, not two
+    run = runs[0]
+    assert run.kind == "dir"
+    assert run.archive_path == str(zpath)
+    assert run.archive_size_bytes == zpath.stat().st_size
+    assert run.size_bytes > zpath.stat().st_size  # dir contents + archive
+
+
+def test_standalone_zip_keeps_own_entry(tmp_path):
+    make_dir_run(tmp_path, "some_run")
+    make_sibling_zip(tmp_path, "unrelated_backup")
+    runs = scan(tmp_path)
+    assert len(runs) == 2
+    kinds = {r.id: r.kind for r in runs}
+    assert kinds["unrelated_backup.zip"] == "zip"
+    assert all(r.archive_path is None for r in runs)
+
+
 def test_runs_sorted_newest_first(tmp_path):
     old = make_dir_run(tmp_path, "old_run")
     (old / "summary.json").write_text(json.dumps({"finished_at": "2026-01-01T00:00:00Z"}))

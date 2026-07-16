@@ -144,6 +144,25 @@ def test_backup_conflict_without_tool(client, monkeypatch):
     assert res.status_code == 409
 
 
+def test_verify_prefers_archive(client, tmp_path, monkeypatch):
+    make_stub_tool(tmp_path, monkeypatch, 'echo "verify $*"\nexit 0\n')
+    root = tmp_path / "backups"
+    run = root / "archived_run"
+    run.mkdir(parents=True)
+    (run / "summary.json").write_text("{}")
+    import zipfile
+
+    with zipfile.ZipFile(root / "archived_run.zip", "w") as zf:
+        zf.writestr("summary.json", "{}")
+    app_module.cache.invalidate()
+
+    res = client.post("/api/backups/archived_run/verify")
+    assert res.status_code == 202
+    snap = wait_for_job(client, res.json()["job_id"])
+    assert snap["state"] == "succeeded"
+    assert any("archived_run.zip" in line for line in snap["lines"])
+
+
 def test_verify_unknown_run(client):
     res = client.post("/api/backups/nope/verify")
     assert res.status_code == 404

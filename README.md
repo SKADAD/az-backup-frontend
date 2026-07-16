@@ -64,6 +64,13 @@ Any directory under the root containing `summary.json` / `org.json` /
 read defensively, so runs still appear (with filesystem dates) even if
 `summary.json` is missing or its format changes.
 
+Archived runs don't get duplicate entries: `azdo-backup --archive` writes
+`<run-name>.zip` next to the run directory and keeps both, so the dashboard
+folds the pair into a single entry (marked 🗜) whose size covers folder plus
+archive. Verify uses the archive when one exists, since that's what
+`checksums.json` covers. A `.zip` without a matching directory still gets its
+own entry.
+
 ## Security notes
 
 - The PAT is **never** stored, logged, or accepted through the UI. The
