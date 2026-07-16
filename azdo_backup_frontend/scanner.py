@@ -131,16 +131,34 @@ def _dir_size(path: Path) -> int:
     return total
 
 
-# Finished runs are immutable, so their tree walk result is cached against
-# summary.json's identity; unfinished runs (no summary yet) are always re-walked.
+# Finished runs are immutable, so their tree walk result is cached against the
+# identity of their summary.json files — the root one for org backups, the
+# per-project ones for single-project backups. Runs with no summary anywhere
+# (still running or interrupted) are always re-walked.
 _size_cache: dict = {}
 
 
+def _run_signature(path: Path):
+    candidates = [path / "summary.json"]
+    projects_dir = path / "projects"
+    if projects_dir.is_dir():
+        try:
+            candidates += sorted(p / "summary.json" for p in projects_dir.iterdir() if p.is_dir())
+        except OSError:
+            pass
+    signature = []
+    for candidate in candidates:
+        try:
+            st = candidate.stat()
+            signature.append((str(candidate), st.st_mtime_ns, st.st_size))
+        except OSError:
+            continue
+    return tuple(signature) or None
+
+
 def _cached_dir_size(path: Path) -> int:
-    try:
-        st = (path / "summary.json").stat()
-        signature = (st.st_mtime_ns, st.st_size)
-    except OSError:
+    signature = _run_signature(path)
+    if signature is None:
         return _dir_size(path)
     cached = _size_cache.get(str(path))
     if cached is not None and cached[0] == signature:
@@ -150,18 +168,49 @@ def _cached_dir_size(path: Path) -> int:
     return size
 
 
+def _merge_probes(probes: List[dict]) -> dict:
+    merged = {"created_at": None, "duration_seconds": None, "error_count": 0, "projects": []}
+    for probe in probes:
+        merged["error_count"] += probe["error_count"]
+        merged["projects"].extend(probe["projects"])
+        if probe["created_at"] and (not merged["created_at"] or probe["created_at"] > merged["created_at"]):
+            merged["created_at"] = probe["created_at"]
+        if probe["duration_seconds"] is not None:
+            merged["duration_seconds"] = (merged["duration_seconds"] or 0.0) + probe["duration_seconds"]
+    return merged
+
+
 def _scan_dir_run(path: Path) -> BackupRun:
     summary = _load_json(path / "summary.json")
-    probed = _probe_summary(summary or {})
     org = _probe_org(_load_json(path / "org.json") or {})
 
-    projects = probed["projects"]
     projects_dir = path / "projects"
-    if not projects and projects_dir.is_dir():
+    project_dirs: List[Path] = []
+    if projects_dir.is_dir():
         try:
-            projects = sorted(p.name for p in projects_dir.iterdir() if p.is_dir())
+            project_dirs = sorted(p for p in projects_dir.iterdir() if p.is_dir())
         except OSError:
-            projects = []
+            project_dirs = []
+
+    if summary is not None:
+        # Org-level backup (--all-projects): the tool writes a root summary.json.
+        probed = _probe_summary(summary)
+        status = "completed_with_errors" if probed["error_count"] > 0 else "ok"
+    else:
+        # Single-project backups only write projects/<name>/summary.json, so
+        # judge the run by its per-project summaries instead. A project folder
+        # without one means the run was interrupted.
+        project_summaries = [_load_json(p / "summary.json") for p in project_dirs]
+        if project_dirs and all(s is not None for s in project_summaries):
+            probed = _merge_probes([_probe_summary(s) for s in project_summaries])
+            status = "completed_with_errors" if probed["error_count"] > 0 else "ok"
+        else:
+            probed = _probe_summary({})
+            status = "incomplete"
+
+    projects = probed["projects"]
+    if not projects:
+        projects = [p.name for p in project_dirs]
 
     created_at = probed["created_at"]
     if not created_at:
@@ -169,13 +218,6 @@ def _scan_dir_run(path: Path) -> BackupRun:
             created_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
         except OSError:
             created_at = None
-
-    if summary is None:
-        status = "incomplete"
-    elif probed["error_count"] > 0:
-        status = "completed_with_errors"
-    else:
-        status = "ok"
 
     return BackupRun(
         id=path.name,
