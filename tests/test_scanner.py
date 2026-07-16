@@ -85,6 +85,42 @@ def test_finished_run_size_is_cached_until_summary_changes(tmp_path):
     assert scan(tmp_path)[0].size_bytes >= size1 + 5000
 
 
+def make_single_project_run(root, name, project="DevOps", errors=0):
+    """Replicates `backup --project X`: summary.json only under projects/<name>/."""
+    run = root / name
+    pdir = run / "projects" / project
+    (pdir / "work_items").mkdir(parents=True)
+    (pdir / "work_items" / "index.json").write_text("{}")
+    (pdir / "summary.json").write_text(json.dumps({
+        "counts": {"work_items": 449, "attachments": 1},
+        "error_count": errors,
+        "errors": ["boom"] * errors,
+    }))
+    return run
+
+
+def test_single_project_run_without_root_summary_is_ok(tmp_path):
+    make_single_project_run(tmp_path, "2026-07-16_152615_DevOps")
+    runs = scan(tmp_path)
+    assert len(runs) == 1
+    assert runs[0].status == "ok"
+    assert runs[0].projects == ["DevOps"]
+    assert runs[0].error_count == 0
+
+
+def test_single_project_run_with_errors(tmp_path):
+    make_single_project_run(tmp_path, "run_with_errors", errors=2)
+    run = scan(tmp_path)[0]
+    assert run.status == "completed_with_errors"
+    assert run.error_count == 2
+
+
+def test_interrupted_run_is_incomplete(tmp_path):
+    run = make_single_project_run(tmp_path, "interrupted")
+    (run / "projects" / "DevOps" / "summary.json").unlink()
+    assert scan(tmp_path)[0].status == "incomplete"
+
+
 def make_sibling_zip(root, name):
     zpath = root / (name + ".zip")
     with zipfile.ZipFile(zpath, "w") as zf:
